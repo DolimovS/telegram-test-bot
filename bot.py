@@ -41,7 +41,9 @@ class Bot:
                     code=self.s.confirm(uid,action[3:])
                     row=next(r for r in self.s.history(uid) if r['code']==code)
                     self.send(uid,'Javoblar qabul qilindi.\n'+render(row))
-                elif action=='cancel': self.send(uid,'Tasdiqlanmadi. Javoblarni qayta yuborishingiz mumkin.')
+                elif action.startswith('cancel:'):
+                    with self.s.db() as c: c.execute('DELETE FROM pending WHERE token=? AND uid=?',(action[7:],uid))
+                    self.send(uid,'Tasdiqlanmadi. Javoblarni qayta yuborishingiz mumkin.')
                 elif action in ('history','all'):
                     rows=self.s.history(uid,action=='all')
                     if not rows: self.send(uid,'Tarix hozircha bo‘sh.')
@@ -75,7 +77,7 @@ class Bot:
                     with self.s.db() as c: c.execute("DELETE FROM settings WHERE key='draft'")
                     self.send(uid,f'Test yaratildi. Kod: {code}'); return
                 token,code,key=self.s.preview(uid,text)
-                self.send(uid,f"Kod: {code}\n"+' '.join(f'{i}-{a}' for i,a in enumerate(key,1))+'\nYakuniy topshirishni tasdiqlaysizmi?',[[{'text':'Tasdiqlash','callback_data':'ok:'+token},{'text':'Bekor qilish','callback_data':'cancel'}]])
+                self.send(uid,f"Kod: {code}\n"+' '.join(f'{i}-{a}' for i,a in enumerate(key,1))+'\nYakuniy topshirishni tasdiqlaysizmi?',[[{'text':'Tasdiqlash','callback_data':'ok:'+token},{'text':'Bekor qilish','callback_data':'cancel:'+token}]])
         except ValueError as e: self.send(uid,str(e))
     def notify(self):
         self.s.expire()
