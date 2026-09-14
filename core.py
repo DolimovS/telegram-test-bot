@@ -41,12 +41,14 @@ class Store:
         key = answers(key)
         if deadline is not None and deadline <= time.time(): raise ValueError('Muddat kelajakda bo‘lishi kerak.')
         with self.db() as c:
-            while True:
-                code = str(secrets.randbelow(90000000)+10000000)
-                try:
-                    c.execute('INSERT INTO tests(code,key,delayed,deadline) VALUES(?,?,?,?)', (code,key,int(delayed),deadline))
-                    return code
-                except sqlite3.IntegrityError: pass
+            c.execute('BEGIN IMMEDIATE')
+            used = {row['code'] for row in c.execute('SELECT code FROM tests')}
+            available = [str(n) for n in range(1000, 10000) if str(n) not in used]
+            if not available:
+                raise ValueError('Barcha 4 xonali test kodlari band. Yangi test yaratib bo‘lmaydi.')
+            code = secrets.choice(available)
+            c.execute('INSERT INTO tests(code,key,delayed,deadline) VALUES(?,?,?,?)', (code,key,int(delayed),deadline))
+            return code
     def close(self, uid, code):
         self.authorize(uid)
         with self.db() as c:
@@ -55,7 +57,7 @@ class Store:
         with self.db() as c: c.execute('UPDATE tests SET closed=1 WHERE deadline<=?',(time.time(),))
     def preview(self, uid, text):
         parts = text.strip().split(maxsplit=1)
-        if len(parts)!=2: raise ValueError('Kod va barcha javoblarni bitta xabarda yuboring: 482731 ABCDAB')
+        if len(parts)!=2: raise ValueError('Kod va barcha javoblarni bitta xabarda yuboring: 4827 ABCDAB')
         code, key = parts[0], answers(parts[1])
         with self.db() as c:
             t = c.execute('SELECT * FROM tests WHERE code=?',(code,)).fetchone()

@@ -5,9 +5,7 @@ from core import Store
 
 TZ=timezone(timedelta(hours=5), 'Asia/Tashkent')
 def stamp(value): return datetime.fromtimestamp(value,TZ).strftime('%Y-%m-%d %H:%M')
-def render(r):
-    result='Natija test yopilganda ochiladi.' if r['score'] is None else f"To‘g‘ri: {r['score']}/{len(r['answers'])}. Xato savollar: {', '.join(map(str,json.loads(r['wrong']))) or 'yo‘q'}."
-    return f"Kod: {r['code']} | ID: {r['uid']}\nJavoblar: {r['answers']}\nSana: {stamp(r['submitted'])}\n{result}"
+from presentation import render, preview, chunks, NAV
 
 class Bot:
     def __init__(self,token,store): self.token,self.s=token,store
@@ -17,14 +15,25 @@ class Bot:
         if not result.get('ok'): raise RuntimeError('Telegram API xatosi')
         return result['result']
     def send(self,uid,text,buttons=None):
-        for start in range(0,len(text),3500):
-            kwargs={'chat_id':uid,'text':text[start:start+3500]}
-            if buttons and start+3500>=len(text): kwargs['reply_markup']={'inline_keyboard':buttons}
-            self.api('sendMessage',**kwargs)
+        parts = list(chunks(text))
+        for index, part in enumerate(parts):
+            kwargs = {'chat_id': uid, 'text': part}
+            if buttons and index == len(parts)-1:
+                kwargs['reply_markup'] = {'inline_keyboard': buttons}
+            while True:
+                try:
+                    self.api('sendMessage', **kwargs)
+                    break
+                except urllib.error.HTTPError as e:
+                    if e.code != 429: raise
+                    try: delay = json.load(e).get('parameters', {}).get('retry_after', 2)
+                    except Exception: delay = 2
+                    time.sleep(max(1, min(int(delay), 60)))
+            if index < len(parts)-1: time.sleep(1.1)
     def menu(self,uid):
-        buttons=[[{'text':'Mening tarixim','callback_data':'history'}]]
-        if uid==self.s.admin: buttons += [[{'text':'Test yaratish','callback_data':'new'},{'text':'Testlar','callback_data':'tests'}],[{'text':'Barcha natijalar','callback_data':'all'}]]
-        self.send(uid,'Kod va barcha javoblarni bitta xabarda yuboring.\nMisol: 482731 ABCDAB\nYoki: 482731 1-A, 2-B, 3-C\nTasdiqlangandan keyin javoblar o‘zgarmaydi.',buttons)
+        buttons=[[{'text':'📚 Mening tarixim','callback_data':'history'}]]
+        if uid==self.s.admin: buttons += [[{'text':'➕ Test yaratish','callback_data':'new'},{'text':'Testlar','callback_data':'tests'}],[{'text':'📊 Barcha natijalar','callback_data':'all'}]]
+        self.send(uid,'🎓 TEST MARKAZI\n\nKod va barcha javoblarni bitta xabarda yuboring.\nMisol: 4827 ABCDAB\nYoki: 4827 1-A, 2-B, 3-C\nTasdiqlangandan keyin javoblar o‘zgarmaydi.',buttons)
     def handle(self,u):
         cb=u.get('callback_query')
         m=cb.get('message',{}) if cb else u.get('message',{})
@@ -40,14 +49,25 @@ class Bot:
                 if action.startswith('ok:'):
                     code=self.s.confirm(uid,action[3:])
                     row=next(r for r in self.s.history(uid) if r['code']==code)
-                    self.send(uid,'Javoblar qabul qilindi.\n'+render(row))
+                    self.send(uid,'📩 Javoblar qabul qilindi.\n\n'+render(row), NAV)
+                    if row['score'] is not None:
+                        with self.s.db() as c: c.execute('UPDATE attempts SET notified=1 WHERE code=? AND uid=?',(code,uid))
                 elif action.startswith('cancel:'):
                     with self.s.db() as c: c.execute('DELETE FROM pending WHERE token=? AND uid=?',(action[7:],uid))
                     self.send(uid,'Tasdiqlanmadi. Javoblarni qayta yuborishingiz mumkin.')
-                elif action in ('history','all'):
-                    rows=self.s.history(uid,action=='all')
-                    if not rows: self.send(uid,'Tarix hozircha bo‘sh.')
-                    for r in rows: self.send(uid,render(r))
+                elif action == 'menu': self.menu(uid)
+                elif action.split(':')[0] in ('history','all'):
+                    kind = action.split(':')[0]
+                    page = int(action.split(':')[1]) if ':' in action else 0
+                    rows = self.s.history(uid, kind=='all')
+                    pages = max(1, (len(rows)+2)//3)
+                    page = min(max(0,page),pages-1)
+                    for r in rows[page*3:page*3+3]: self.send(uid,render(r))
+                    nav = []
+                    if page: nav.append({'text':'⬅️ Oldingi','callback_data':f'{kind}:{page-1}'})
+                    if page+1<pages: nav.append({'text':'Keyingi ➡️','callback_data':f'{kind}:{page+1}'})
+                    buttons = ([nav] if nav else []) + [[{'text':'🏠 Bosh menyu','callback_data':'menu'}]]
+                    self.send(uid, f'📚 Tarix · {page+1}/{pages} sahifa · {len(rows)} ta topshirish' if rows else '📚 Tarix hozircha bo‘sh.',buttons)
                 else:
                     self.s.authorize(uid)
                     if action=='new': self.send(uid,'Natija rejimini tanlang:',[[{'text':'Darhol','callback_data':'mode:0'},{'text':'Yopilganda','callback_data':'mode:1'}]])
@@ -77,13 +97,13 @@ class Bot:
                     with self.s.db() as c: c.execute("DELETE FROM settings WHERE key='draft'")
                     self.send(uid,f'Test yaratildi. Kod: {code}'); return
                 token,code,key=self.s.preview(uid,text)
-                self.send(uid,f"Kod: {code}\n"+' '.join(f'{i}-{a}' for i,a in enumerate(key,1))+'\nYakuniy topshirishni tasdiqlaysizmi?',[[{'text':'Tasdiqlash','callback_data':'ok:'+token},{'text':'Bekor qilish','callback_data':'cancel:'+token}]])
+                self.send(uid,preview(code,key),[[{'text':'Tasdiqlash','callback_data':'ok:'+token},{'text':'Bekor qilish','callback_data':'cancel:'+token}]])
         except ValueError as e: self.send(uid,str(e))
     def notify(self):
         self.s.expire()
         with self.s.db() as c: rows=c.execute('SELECT a.*,t.delayed,t.closed FROM attempts a JOIN tests t USING(code) WHERE a.notified=0 AND (t.closed=1 OR t.delayed=0)').fetchall()
         for r in rows:
-            try: self.send(r['uid'],render(dict(r)))
+            try: self.send(r['uid'],render(dict(r)), NAV)
             except urllib.error.HTTPError as e:
                 if e.code not in (400,403): raise
             else:
