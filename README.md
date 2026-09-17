@@ -1,5 +1,30 @@
 # Telegram test bot
 
+**Hozirgi ishlaydigan variant — lokal Python bot.** [Cloudflare tayyorlov loyihasi](cloudflare/README.md) alohida katalogda saqlangan; hali deploy yoki bazani ko‘chirish qilinmagan. Yangi arxiv/o‘chirish imkoniyatlari avval lokal botda sinovdan o‘tadi. GitHub push o‘z-o‘zidan Cloudflare deployment qilmaydi.
+
+## Boshlash va test boshqaruvi
+
+`/start` dan keyin pastki klaviaturada **▶️ Boshlash** va **📚 Mening tarixim** tugmalari doimiy ko‘rinadi. Boshlash bosh menyuga qaytaradi va adminning tugallanmagan yangi test holatini bekor qiladi.
+
+Admin **Testlar** bo‘limida beshtadan sahifalangan ro‘yxatni ko‘radi. Har bir testda holati, muddat, natija rejimi va topshirishlar soni bor. **Arxiv** bo‘limi asosiy ro‘yxatdan alohida.
+
+- **Arxivlash** testni yopadi va asosiy ro‘yxatdan olib tashlaydi. Oldingi topshirishlar, ballar va tarix saqlanadi; kechiktirilgan natijalar ochiladi.
+- **Arxivdan qaytarish** asosiy ro‘yxatga qaytaradi, lekin test yopiq qoladi. Yangi variant yoki qayta topshirish uchun yangi test yaratiladi.
+- **Butunlay o‘chirish** faqat tasdiqlangan topshirishi yo‘q test uchun mavjud. Alohida tasdiqlash tugmasi talab qilinadi; tasdiqlash paytida topshirishlar qayta tekshiriladi. Agar kimdir shu orada topshirgan bo‘lsa, o‘chirish rad etiladi va arxivlash taklif qilinadi.
+- O‘chirilgan testning kodi qayta ishlatilmaydi. Eski tasdiqlash tugmalari boshqa testga javob yozolmaydi.
+
+## Cloudflare’ga keyin ko‘chirishga tayyorlik
+
+Hozir hisob ochish yoki hostingga ulanish shart emas; bot lokal ishlaydi. Cloudflare hisobi ochilgach, ish quyidagi tartibda bajariladi:
+
+1. Cloudflare Free hisobiga kirish va D1 bazasini tayyorlash.
+2. Repository’dagi Cloudflare variantida **Boshlash, arxiv/o‘chirish, arxiv holati va qayta ishlatilmaydigan kodlar** qoidalari tayyor. Cloudflare hisobida D1 bazasini yaratib, migrationni qo‘llash.
+3. Maxfiy token/admin ID/webhook secret sozlash; ularni GitHub yoki chatga qo‘ymaslik.
+4. Lokal botni qisqa vaqtga to‘xtatib, izchil SQLite zaxira va eksport olish. Testlar, topshirishlar, arxivlar va band/qayta ishlatilmaydigan kodlar sonini yangi bazada solishtirish.
+5. Webhook va avtomatik yopish/natija yuborishni sinovdan o‘tkazish, so‘ng serverni faollashtirish. Lokal polling va server webhook bir vaqtda ishlamaydi.
+
+Cloudflare variantining mantiq, maxfiylik, takroriy webhook, navbat, arxiv/o‘chirish va eksport testlari o‘tgan. Hisobga ulanishdan keyin rasmiy Wrangler build, D1 migration va Telegram webhook sinovi deploydan oldin bajariladi.
+
 Python 3.11+; qo‘shimcha paketlar kerak emas. Interfeys o‘zbek tilida. Faqat shaxsiy chatda ishlaydi.
 
 ## Ishga tushirish

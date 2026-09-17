@@ -26,7 +26,12 @@ class Store:
             CREATE TABLE IF NOT EXISTS attempts(code TEXT, uid INTEGER, answers TEXT, submitted REAL, score INTEGER, wrong TEXT, notified INTEGER DEFAULT 0, PRIMARY KEY(code,uid));
             CREATE TABLE IF NOT EXISTS pending(token TEXT PRIMARY KEY, uid INTEGER, code TEXT, answers TEXT, created REAL);
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+            CREATE TABLE IF NOT EXISTS retired_codes(code TEXT PRIMARY KEY);
             ''')
+            if 'archived' not in {r['name'] for r in c.execute('PRAGMA table_info(tests)')}:
+                c.execute('ALTER TABLE tests ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
+            c.execute('CREATE INDEX IF NOT EXISTS attempts_code ON attempts(code)')
+            c.execute('CREATE INDEX IF NOT EXISTS tests_archived ON tests(archived)')
     @contextmanager
     def db(self):
         c = sqlite3.connect(self.path, timeout=30)
@@ -42,7 +47,7 @@ class Store:
         if deadline is not None and deadline <= time.time(): raise ValueError('Muddat kelajakda bo‘lishi kerak.')
         with self.db() as c:
             c.execute('BEGIN IMMEDIATE')
-            used = {row['code'] for row in c.execute('SELECT code FROM tests')}
+            used = {row['code'] for row in c.execute('SELECT code FROM tests UNION SELECT code FROM retired_codes')}
             available = [str(n) for n in range(1000, 10000) if str(n) not in used]
             if not available:
                 raise ValueError('Barcha 4 xonali test kodlari band. Yangi test yaratib bo‘lmaydi.')
@@ -69,6 +74,7 @@ class Store:
             return token, code, key
     def check(self,t,key):
         if t is None: raise ValueError('Test topilmadi.')
+        if t['archived']: raise ValueError('Test arxivlangan. Javob qabul qilinmaydi.')
         if t['closed'] or (t['deadline'] is not None and t['deadline']<=time.time()): raise ValueError('Test yopilgan.')
         if len(key)!=len(t['key']): raise ValueError(f'Javoblar soni {len(t["key"])} ta bo‘lishi kerak.')
     def confirm(self,uid,token):
@@ -98,3 +104,45 @@ class Store:
         self.authorize(uid)
         self.expire()
         with self.db() as c: return [dict(r) for r in c.execute('SELECT code,deadline,closed,delayed FROM tests ORDER BY rowid DESC')]
+
+    def manage_tests(self, uid, archived=False, page=0, size=5):
+        self.authorize(uid)
+        self.expire()
+        with self.db() as c:
+            total=c.execute('SELECT COUNT(*) FROM tests WHERE archived=?',(int(archived),)).fetchone()[0]
+            pages=max(1,(total+size-1)//size)
+            page=min(max(0,page),pages-1)
+            rows=c.execute('SELECT t.code,t.deadline,t.closed,t.delayed,t.archived,(SELECT COUNT(*) FROM attempts a WHERE a.code=t.code) AS submissions FROM tests t WHERE t.archived=? ORDER BY t.rowid DESC LIMIT ? OFFSET ?', (int(archived),size,page*size)).fetchall()
+            return [dict(r) for r in rows],page,pages,total
+
+    def test_details(self,uid,code):
+        self.authorize(uid)
+        self.expire()
+        with self.db() as c:
+            row=c.execute('SELECT code,deadline,closed,delayed,archived,(SELECT COUNT(*) FROM attempts a WHERE a.code=t.code) AS submissions FROM tests t WHERE code=?',(code,)).fetchone()
+            if row is None: raise ValueError('Test topilmadi.')
+            return dict(row)
+
+    def archive(self,uid,code):
+        self.authorize(uid)
+        with self.db() as c:
+            if not c.execute('UPDATE tests SET archived=1,closed=1 WHERE code=?',(code,)).rowcount:
+                raise ValueError('Test topilmadi.')
+
+    def unarchive(self,uid,code):
+        self.authorize(uid)
+        with self.db() as c:
+            if not c.execute('UPDATE tests SET archived=0 WHERE code=?',(code,)).rowcount:
+                raise ValueError('Test topilmadi.')
+
+    def delete_empty(self,uid,code):
+        self.authorize(uid)
+        with self.db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            if not c.execute('SELECT 1 FROM tests WHERE code=?',(code,)).fetchone():
+                raise ValueError('Test topilmadi.')
+            if c.execute('SELECT 1 FROM attempts WHERE code=? LIMIT 1',(code,)).fetchone():
+                raise ValueError('Bu testda topshirishlar bor. Tarixni saqlash uchun testni arxivlang.')
+            c.execute('INSERT OR IGNORE INTO retired_codes(code) VALUES(?)',(code,))
+            c.execute('DELETE FROM pending WHERE code=?',(code,))
+            c.execute('DELETE FROM tests WHERE code=?',(code,))

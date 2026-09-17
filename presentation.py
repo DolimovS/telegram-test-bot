@@ -3,7 +3,7 @@ from datetime import datetime, timezone, timedelta
 
 TZ = timezone(timedelta(hours=5), 'Asia/Tashkent')
 NAV = [[{'text': '📚 Mening tarixim', 'callback_data': 'history'},
-        {'text': '🏠 Bosh menyu', 'callback_data': 'menu'}]]
+        {'text': '▶️ Boshlash', 'callback_data': 'menu'}]]
 
 def stamp(value):
     return datetime.fromtimestamp(value, TZ).strftime('%d.%m.%Y · %H:%M')
